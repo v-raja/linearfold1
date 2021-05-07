@@ -1,4 +1,4 @@
-package main
+package linearfold
 
 import (
 	"container/heap"
@@ -7,10 +7,6 @@ import (
 	"sort"
 	"strings"
 )
-
-func main() {
-	LinearFold("UGAGUUCUCGAUCUCUAAAAUCG")
-}
 
 // Magic numbers
 // Should add source and small description of what the number is about
