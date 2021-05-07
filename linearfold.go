@@ -1,4 +1,4 @@
-package linearfold
+package main
 
 import (
 	"container/heap"
@@ -7,6 +7,17 @@ import (
 	"sort"
 	"strings"
 )
+
+func main() {
+	fmt.Println(LinearFold("UGAGUUCUCGAUCUCUAAAAUCG"))
+	fmt.Println(LinearFold("AAAACGGUCCUUAUCAGGACCAAACA"))
+	fmt.Println(LinearFold("AUUCUUGCUUCAACAGUGUUUGAACGGAAU"))
+	fmt.Println(LinearFold("UCGGCCACAAACACACAAUCUACUGUUGGUCGA"))
+	fmt.Println(LinearFold("GUUUUUAUCUUACACACGCUUGUGUAAGAUAGUUA"))
+
+	// Need to change beam_size to 20 if you want to run this example
+	// fmt.Println(LinearFold("GGGCUCGUAGAUCAGCGGUAGAUCGCUUCCUUCGCAAGGAAGCCCUGGGUUCAAAUCCCAGCGAGUCCACCA"))
+}
 
 // Magic numbers
 // Should add source and small description of what the number is about
@@ -48,6 +59,8 @@ const ASYMMETRY_MAX_LEN int = 28
 
 // recommended beam size based on paper
 var beam_size int = 100
+
+// (((((((..((((.......))))(((((((.....))))))).(((((.......))))))))))))....
 
 var VALUE_MIN float64 = -math.MaxFloat64
 
@@ -254,7 +267,7 @@ func (s *State) Set3(score float64, manner int, split int) {
 
 // Assumes valid sequence input
 // Output: Linearfold score, structure
-func LinearFold(sequence string) {
+func LinearFold(sequence string) string {
 	fmt.Println(sequence)
 
 	initialize()
@@ -269,7 +282,7 @@ func LinearFold(sequence string) {
 	// lhuang: moved inside loop, fixing an obscure but crucial bug in initialization
 	// BeamCKYParser parser(beam_size);
 	// BeamCKYParser::DecoderResult result = parser.parse(seq, NULL);
-	Parse(sequence)
+	return Parse(sequence)
 
 	// #ifdef lv
 	//         double printscore = (result.score / -100.0);
@@ -313,7 +326,7 @@ func (h *PairHeap) Pop() interface{} {
 	return x
 }
 
-func Parse(sequence string) {
+func Parse(sequence string) string {
 
 	// number of states
 	var nos_H, nos_P, nos_M2, nos_M, nos_C, nos_Multi uint64 = 0, 0, 0, 0, 0, 0
@@ -331,6 +344,14 @@ func Parse(sequence string) {
 	bestM = make([](map[int]*State), seq_length)
 	bestM2 = make([](map[int]*State), seq_length)
 	bestMulti = make([](map[int]*State), seq_length)
+	for i := 0; i < seq_length; i++ {
+		bestH[i] = make(map[int]*State)
+		bestP[i] = make(map[int]*State)
+		bestM[i] = make(map[int]*State)
+		bestM2[i] = make(map[int]*State)
+		bestMulti[i] = make(map[int]*State)
+	}
+
 	sorted_bestM = make([][]Pair, seq_length)
 
 	// vector to store the scores at each beam temporarily for beam pruning
@@ -415,7 +436,13 @@ func Parse(sequence string) {
 
 					// this candidate must be the best one at [j, jnext]
 					// so no need to check the score
+					if bestH[jnext][j] == nil {
+						bestH[jnext][j] = NewState(VALUE_MIN, MANNER_NONE)
+					}
+					// fmt.Printf("Going to try to update bestH. jnext = %v, j = %v\n", jnext, j)
+					// fmt.Printf("newscore: %v\n", newscore)
 					update_if_better(bestH[jnext][j], newscore, MANNER_H)
+					// fmt.Printf("Score after update: %v\n", bestH[jnext][j].score)
 					nos_H++
 				}
 			}
@@ -431,6 +458,9 @@ func Parse(sequence string) {
 					// 2. generate p(i, j)
 					// lisiz, change the order because of the constriants
 					{
+						if (*beamstepP)[i] == nil {
+							(*beamstepP)[i] = NewState(VALUE_MIN, MANNER_NONE)
+						}
 						update_if_better((*beamstepP)[i], state.score, MANNER_HAIRPIN)
 						nos_P++
 					}
@@ -458,6 +488,10 @@ func Parse(sequence string) {
 						newscore = score_hairpin(i, jnext, nuci, nuci1, nucjnext_1, nucjnext)
 						// this candidate must be the best one at [i, jnext]
 						// so no need to check the score
+
+						if bestH[jnext][i] == nil {
+							bestH[jnext][i] = NewState(VALUE_MIN, MANNER_NONE)
+						}
 						update_if_better(bestH[jnext][i], newscore, MANNER_H)
 						nos_H++
 					}
@@ -489,6 +523,9 @@ func Parse(sequence string) {
 				{
 					var newscore float64
 					newscore = state.score + score_multi(i, j, nuci, nuci1, nucs[j-1], nucj, seq_length)
+					if (*beamstepP)[i] == nil {
+						(*beamstepP)[i] = NewState(VALUE_MIN, MANNER_NONE)
+					}
 					update_if_better((*beamstepP)[i], newscore, MANNER_P_eq_MULTI)
 					nos_P++
 				}
@@ -503,6 +540,9 @@ func Parse(sequence string) {
 						newscore := state.score + score_multi_unpaired(j, jnext-1)
 						// this candidate must be the best one at [i, jnext]
 						// so no need to check the score
+						if bestMulti[jnext][i] == nil {
+							bestMulti[jnext][i] = NewState(VALUE_MIN, MANNER_NONE)
+						}
 						update_if_better2(bestMulti[jnext][i], newscore, MANNER_MULTI_eq_MULTI_plus_U,
 							new_l1,
 							new_l2)
@@ -537,6 +577,9 @@ func Parse(sequence string) {
 				// 2. M = P
 				if i > 0 && j < seq_length-1 {
 					newscore := score_M1(i, j, j, nuci_1, nuci, nucj, nucj1, seq_length) + state.score
+					if (*beamstepM)[i] == nil {
+						(*beamstepM)[i] = NewState(VALUE_MIN, MANNER_NONE)
+					}
 					update_if_better((*beamstepM)[i], newscore, MANNER_M_eq_P)
 					nos_M++
 				}
@@ -551,6 +594,9 @@ func Parse(sequence string) {
 						for newi, state := range bestM[k] {
 							// eq. to first convert P to M1, then M2/M = M + M1
 							newscore := M1_score + state.score
+							if (*beamstepM2)[newi] == nil {
+								(*beamstepM2)[newi] = NewState(VALUE_MIN, MANNER_NONE)
+							}
 							update_if_better3((*beamstepM2)[newi], newscore, MANNER_M2_eq_M_plus_P, k)
 							//update_if_better(bestM[j][newi], newscore, MANNER_M_eq_M_plus_P, k);
 							nos_M2++
@@ -570,12 +616,19 @@ func Parse(sequence string) {
 
 							newscore := score_external_paired(k+1, j, nuck, nuck1,
 								nucj, nucj1, seq_length) + prefix_C.score + state.score
+
+							if beamstepC == nil {
+								beamstepC = NewState(VALUE_MIN, MANNER_NONE)
+							}
 							update_if_better3(beamstepC, newscore, MANNER_C_eq_C_plus_P, k)
 							nos_C++
 						}
 					} else {
 						newscore := score_external_paired(0, j, -1, nucs[0],
 							nucj, nucj1, seq_length) + state.score
+						if beamstepC == nil {
+							beamstepC = NewState(VALUE_MIN, MANNER_NONE)
+						}
 						update_if_better3(beamstepC, newscore, MANNER_C_eq_C_plus_P, -1)
 						nos_C++
 					}
@@ -598,6 +651,9 @@ func Parse(sequence string) {
 							if p == i-1 && q == j+1 {
 								// helix
 								var newscore float64 = score_helix(nucp, nucp1, nucq_1, nucq) + state.score
+								if bestP[q][p] == nil {
+									bestP[q][p] = NewState(VALUE_MIN, MANNER_NONE)
+								}
 								update_if_better(bestP[q][p], newscore, MANNER_HELIX)
 								nos_P++
 							} else {
@@ -609,6 +665,9 @@ func Parse(sequence string) {
 										nuci_1, nuci, nucj, nucj1) +
 									state.score
 
+								if bestP[q][p] == nil {
+									bestP[q][p] = NewState(VALUE_MIN, MANNER_NONE)
+								}
 								update_if_better2(bestP[q][p], newscore, MANNER_SINGLE,
 									rune(i-p), q-j)
 								nos_P++
@@ -694,6 +753,9 @@ func Parse(sequence string) {
 
 					if (*beamstepM2)[newi].manner == MANNER_NONE {
 						filled++
+						if (*beamstepM2)[newi] == nil {
+							(*beamstepM2)[newi] = NewState(VALUE_MIN, MANNER_NONE)
+						}
 						update_if_better3((*beamstepM2)[newi], newscore, MANNER_M2_eq_M_plus_P, k)
 						nos_M2++
 					} else {
@@ -746,6 +808,9 @@ func Parse(sequence string) {
 			for i, state := range *beamstepM2 {
 				// 2. M = M2
 				{
+					if (*beamstepM)[i] == nil {
+						(*beamstepM)[i] = NewState(VALUE_MIN, MANNER_NONE)
+					}
 					update_if_better((*beamstepM)[i], state.score, MANNER_M_eq_M2)
 					nos_M++
 				}
@@ -760,6 +825,10 @@ func Parse(sequence string) {
 							// the current shape is p..i M2 j ..q
 							var newscore float64 = score_multi_unpaired(p+1, i-1) +
 								score_multi_unpaired(j+1, q-1) + state.score
+
+							if bestMulti[q][p] == nil {
+								bestMulti[q][p] = NewState(VALUE_MIN, MANNER_NONE)
+							}
 							update_if_better2(bestMulti[q][p], newscore, MANNER_MULTI,
 								rune(i-p),
 								q-j)
@@ -786,6 +855,9 @@ func Parse(sequence string) {
 			for i, state := range *beamstepM {
 				if j < seq_length-1 {
 					var newscore float64 = score_multi_unpaired(j+1, j+1) + state.score
+					if bestM[j+1][i] == nil {
+						bestM[j+1][i] = NewState(VALUE_MIN, MANNER_NONE)
+					}
 					update_if_better(bestM[j+1][i], newscore, MANNER_M_eq_M_plus_U)
 					nos_M++
 				}
@@ -798,6 +870,9 @@ func Parse(sequence string) {
 			// C = C + U
 			if j < seq_length-1 {
 				var newscore float64 = score_external_unpaired(j+1, j+1) + beamstepC.score
+				if bestC[j+1] == nil {
+					bestC[j+1] = NewState(VALUE_MIN, MANNER_NONE)
+				}
 				update_if_better(bestC[j+1], newscore, MANNER_C_eq_C_plus_U)
 				nos_C++
 			}
@@ -821,7 +896,8 @@ func Parse(sequence string) {
 	// 						nos_H, nos_P, nos_M2, nos_Multi, nos_M, nos_C);
 	// }
 
-	fmt.Printf("result: %T\nscore: %T", result, viterbi.score)
+	fmt.Printf("result: %v\nscore: %v", result, viterbi.score)
+	return result
 	// return {string(result), viterbi.score, nos_tot};
 }
 
@@ -1018,7 +1094,7 @@ func get_parentheses(seq string) string {
 	for len(stk) != 0 {
 		last_elem_idx := len(stk) - 1
 		top := stk[last_elem_idx]
-		i, j, state := top.first.(int), top.second.(int), top.third.(State)
+		i, j, state := top.first.(int), top.second.(int), top.third.(*State)
 
 		// pop off stack
 		// stk[last_elem_idx] = nil
