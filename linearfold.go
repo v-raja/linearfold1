@@ -8,6 +8,99 @@ import (
 	"strings"
 )
 
+/******************************************************************************
+May 12, 2021
+
+LinearFold is an algorithm developed in 2019 that can simulate the folding of
+RNA in linear-time rather than cubic time, which is what many algorithms use.
+
+Paper here:
+https://doi.org/10.1093/bioinformatics/btz375
+
+There are 2 novel ideas that let LinearFold get developed:
+
+1. Sequences are folded left to right (5'->3'). This would naively increase
+   the algorithm from O(n^3) to O(3^n), but they borrow an efficient packing
+   algorithm that reduces back to O(n^3)
+2. The algorithm uses a beam search while folding sequences to reduce the search
+   space from O(n^3) to O(b*n*log(b)) where b is the beam size
+
+
+## Explanation of algorithm
+
+Figure 2 from the LinearFold paper may be of assistance here.
+
+To understand the full algorithm, let's begin with a naive implementation. There
+are 3 elements that are managed: The structure, the score, and the stack.
+
+1. The structure is the structure of the RNA molecule. It is reprsented in paratheses
+   format, ie: ((.))
+2. The score is a float the current score of any given RNA fold. The score is calculated from
+   the paratheses format.
+3. The stack an integer number of parentheses without matches. For example, a molecule of
+   structure ((.) would have a stack of 1.
+
+As you are iterating along an RNA sequence from left to right, you can do 3 actions on the
+current structure: push by adding a '(', skip by adding a '.', or pop by adding a ')'. These
+actions affect the stack and influence the score.
+
+Sequence: CCAGG
+
+sequence:  C -> CC -> CCA -> CCAG -> CCAGG
+structure: (    ((    ((.    ((.)    ((.))
+score:     0    0     0      +0.9    +1.9
+stack:     1    2     2      1       0
+
+During each step where you add a nucleotide, explore each combination of a push, skip, or pop (3^n).
+At the end of the sequence, return the structure with the highest score. Obviously, this algorithm
+explodes in complexity, so let's make it a little simpler.
+
+
+
+### Idea 1: Merge states: O(3^n) -> O(2^n)
+
+First, let's define the possible current state during a step
+
+type State struct {
+	Structure string
+	Score     float64
+	Stack     int
+}
+
+If you have 2 States with an equivalent stack at an equivalent step, for example:
+
+state1 := State{"((.))", 1.9, 0}
+state2 := State{".(.).", 0.7, 0}
+
+You can "merge" both states together, since the RNA will fold to state1 rather than
+state2. You no longer need to pay attention to state2, since state1 is more favorable.
+All future skips, pushes and pops will be off of state1, not state2.
+
+### Idea 2: Stack state heads: O(2^n) -> O(n^3)
+
+Imagine we have 2 states at an equivalent step, but they do not have an equivalent stack value.
+For example:
+
+state1 := State{"(", 0.0, 1}
+state2 := State{".", -0.1, 0}
+
+If you add a skip or a push [. or (], both of these states will act the same (ie,
+they'll keep a constant score). Only when you pop, or add a ")", will they diverge.
+To save space, we can temporarily pack both states together when doing a skip or a push.
+
+For example, "(" and ".", when adding a "(", could become "?(". This "?(" you
+can add onto until you do a pop, where you will have to unpack the previous values and evaluate them.
+
+This is best demonstrated in Fig2B of the paper.
+
+### Idea 3: Prune states: O(n^3) -> O(n)
+
+This is very simple. As we're searching along all possible structures, prune
+the ones that work the worst. Our search that moves from left to right or 5'->3'
+fits this model quite nicely, since RNA polymerase actually works like this.
+
+******************************************************************************/
+
 // Magic numbers
 // Should add source and small description of what the number is about
 var external_unpaired float64 = -0.009729
@@ -270,14 +363,6 @@ func LinearFold(sequence string) (string, float64) {
 	// BeamCKYParser parser(beam_size);
 	// BeamCKYParser::DecoderResult result = parser.parse(seq, NULL);
 	return Parse(sequence)
-
-	// #ifdef lv
-	//         double printscore = (result.score / -100.0);
-	// #else
-	// var printscore float64 = result.score
-	// #endif
-	// fmt.Printf("%s (%.2f)\n", result.structure, printscore)
-
 }
 
 type Pair struct {
@@ -781,7 +866,6 @@ func Parse(sequence string) (string, float64) {
 				}
 			}
 		}
-		//printf("P at %d\n", j); fflush(stdout);
 
 		// beam of M2
 		{
@@ -826,7 +910,6 @@ func Parse(sequence string) (string, float64) {
 				}
 			}
 		}
-		//printf("M2 at %d\n", j); fflush(stdout);
 
 		// beam of M
 		{
@@ -850,7 +933,6 @@ func Parse(sequence string) (string, float64) {
 				}
 			}
 		}
-		//printf("M at %d\n", j); fflush(stdout);
 
 		// beam of C
 		{
@@ -864,7 +946,6 @@ func Parse(sequence string) (string, float64) {
 				nos_C++
 			}
 		}
-		//printf("C at %d\n", j); fflush(stdout);
 	} // end of for-loo j
 
 	var viterbi *State = bestC[seq_length-1]
@@ -872,20 +953,7 @@ func Parse(sequence string) (string, float64) {
 	// char result[seq_length + 1];
 	result := get_parentheses(sequence)
 
-	// gettimeofday(&parse_endtime, NULL);
-	// double parse_elapsed_time = parse_endtime.tv_sec - parse_starttime.tv_sec + (parse_endtime.tv_usec - parse_starttime.tv_usec) / 1000000.0;
-
-	// var nos_tot uint64 = nos_H + nos_P + nos_M2 + nos_Multi + nos_M + nos_C
-	// if (is_verbose)
-	// {
-	// 		printf("Parse Time: %f len: %d score %f #states %lu H %lu P %lu M2 %lu Multi %lu M %lu C %lu\n",
-	// 						parse_elapsed_time, seq_length, double(viterbi.score), nos_tot,
-	// 						nos_H, nos_P, nos_M2, nos_Multi, nos_M, nos_C);
-	// }
-
-	//fmt.Printf("result: %v\nscore: %v\n", result, viterbi.score)
 	return result, viterbi.score
-	// return {string(result), viterbi.score, nos_tot};
 }
 
 func ScoreExternalUnpaired(i, j int) float64 {
